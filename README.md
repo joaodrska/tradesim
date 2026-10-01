@@ -25,7 +25,13 @@ O TradeSim resolve isso com um ambiente seguro, didático e com elementos de jog
 
 ## 🖼️ Telas
 
-<!-- Arraste os prints aqui, um embaixo do outro -->
+**tela inicial**
+<img width="1345" height="558" alt="primeira tela" src="https://github.com/user-attachments/assets/8d95f743-cbae-4bd1-bae1-7d90fcbad157" />
+**dashboard**
+<img width="1348" height="595" alt="dashboard" src="https://github.com/user-attachments/assets/a9719cb1-a1f6-43aa-887e-122ed635f749" />
+**tela de mercado**
+<img width="1348" height="588" alt="mercado" src="https://github.com/user-attachments/assets/b547c53b-d1e6-423a-a78f-d7e4ab7cd94b" />
+
 
 ## 🛠️ Tecnologias
 
