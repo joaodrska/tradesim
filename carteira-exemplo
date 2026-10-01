@@ -1,0 +1,57 @@
+import pytest
+
+from carteira import OperacaoInvalida, comprar, resumo_carteira, vender
+
+
+def test_preco_medio_em_duas_compras():
+    saldo, carteira, _ = comprar(1000, {}, "PETR4", 10, 20.0)
+    saldo, carteira, _ = comprar(saldo, carteira, "PETR4", 10, 30.0)
+    assert carteira["PETR4"] == {"quantidade": 20, "preco_medio": 25.0}
+    assert saldo == 500
+
+
+def test_venda_nao_muda_preco_medio():
+    _, carteira, _ = comprar(1000, {}, "VALE3", 10, 50.0)
+    _, carteira, _ = vender(500, carteira, "VALE3", 4, 70.0)
+    assert carteira["VALE3"] == {"quantidade": 6, "preco_medio": 50.0}
+
+
+def test_vender_tudo_remove_ativo():
+    _, carteira, _ = comprar(1000, {}, "ITUB4", 5, 30.0)
+    _, carteira, _ = vender(850, carteira, "ITUB4", 5, 30.0)
+    assert "ITUB4" not in carteira
+
+
+def test_corretagem_no_nivel_avancado():
+    saldo, _, taxa = comprar(1000, {}, "PETR4", 10, 20.0, dificuldade="avancado")
+    assert taxa == 1.0  # 0,5% de R$ 200
+    assert saldo == 799.0
+
+
+def test_saldo_insuficiente():
+    with pytest.raises(OperacaoInvalida):
+        comprar(100, {}, "PETR4", 10, 20.0)
+
+
+def test_quantidade_insuficiente():
+    with pytest.raises(OperacaoInvalida):
+        vender(0, {"PETR4": {"quantidade": 2, "preco_medio": 20.0}}, "PETR4", 5, 20.0)
+
+
+def test_quantidade_negativa():
+    with pytest.raises(OperacaoInvalida):
+        comprar(1000, {}, "PETR4", -1, 20.0)
+
+
+def test_resumo_lucro_e_prejuizo():
+    carteira = {
+        "PETR4": {"quantidade": 10, "preco_medio": 20.0},
+        "VALE3": {"quantidade": 10, "preco_medio": 50.0},
+    }
+    r = resumo_carteira(100, carteira, {"PETR4": 30.0, "VALE3": 40.0})
+    assert r["valor_investido"] == 700
+    assert r["valor_em_ativos"] == 700
+    assert r["resultado_total"] == 0
+    assert r["patrimonio_total"] == 800
+    petr = next(p for p in r["posicoes"] if p["codigo"] == "PETR4")
+    assert petr["resultado"] == 100 and petr["resultado_pct"] == 50.0
