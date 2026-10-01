@@ -1,0 +1,199 @@
+"""
+Carteira de investimentos do TradeSim — versão de demonstração.
+
+Este arquivo mostra a lógica de compra, venda e cálculo de resultado da
+carteira do aluno. É um recorte do código real: aqui as funções trabalham só
+com dados em memória, sem banco de dados, login ou o motor de preços.
+
+Formato da carteira:
+    carteira = {
+        "PETR4": {"quantidade": 20, "preco_medio": 40.0},
+        "VALE3": {"quantidade": 10, "preco_medio": 62.5},
+    }
+"""
+
+import math
+
+QUANTIDADE_MAXIMA = 1_000_000
+
+# Taxa de corretagem cobrada em cada operação, conforme o nível de dificuldade.
+# Nos níveis mais fáceis não há taxa, para o aluno focar no básico.
+CORRETAGEM = {
+    "iniciante": 0.0,
+    "intermediario": 0.0,
+    "avancado": 0.005,  # 0,5% por operação
+}
+
+# Abaixo disso a quantidade é considerada zero (evita erros de arredondamento)
+TOLERANCIA = 1e-9
+
+
+class OperacaoInvalida(Exception):
+    """Erro de regra de negócio: saldo insuficiente, ativo inexistente etc."""
+
+
+# --------------------------------------------------------------------------
+# Validação
+# --------------------------------------------------------------------------
+
+def validar_codigo(codigo: str) -> str:
+    """Padroniza o código do ativo (ex: ' petr4 ' -> 'PETR4')."""
+    codigo = (codigo or "").strip().upper()
+    if not codigo or len(codigo) > 12:
+        raise OperacaoInvalida("Código de ativo inválido.")
+    return codigo
+
+
+def validar_quantidade(quantidade: float) -> float:
+    """
+    O servidor sempre revalida a quantidade, mesmo que o site já tenha
+    checado antes: nunca se confia só no que vem do navegador.
+    """
+    if not isinstance(quantidade, (int, float)) or not math.isfinite(quantidade):
+        raise OperacaoInvalida("Quantidade inválida.")
+    if quantidade <= 0:
+        raise OperacaoInvalida("Quantidade deve ser maior que zero.")
+    if quantidade > QUANTIDADE_MAXIMA:
+        raise OperacaoInvalida("Quantidade acima do limite permitido.")
+    return quantidade
+
+
+def taxa_corretagem(dificuldade: str) -> float:
+    return CORRETAGEM.get(dificuldade, 0.0)
+
+
+# --------------------------------------------------------------------------
+# Compra e venda
+# --------------------------------------------------------------------------
+
+def comprar(saldo: float, carteira: dict, codigo: str, quantidade: float,
+            preco: float, dificuldade: str = "iniciante"):
+    """
+    Compra um ativo e recalcula o preço médio.
+
+    Preço médio = (valor que já estava investido + valor da nova compra)
+                  / quantidade total
+
+    Exemplo: tinha 10 ações a R$ 20 e comprou mais 10 a R$ 30.
+             Preço médio = (10*20 + 10*30) / 20 = R$ 25
+
+    Retorna (novo_saldo, nova_carteira, taxa_paga).
+    """
+    codigo = validar_codigo(codigo)
+    quantidade = validar_quantidade(quantidade)
+
+    valor = preco * quantidade
+    taxa = round(valor * taxa_corretagem(dificuldade), 2)
+    custo_total = valor + taxa
+
+    if saldo < custo_total:
+        raise OperacaoInvalida("Saldo insuficiente.")
+
+    carteira = {k: dict(v) for k, v in carteira.items()}  # não altera a original
+    posicao = carteira.get(codigo, {"quantidade": 0, "preco_medio": preco})
+
+    qtd_antiga = posicao["quantidade"]
+    pm_antigo = posicao["preco_medio"]
+    qtd_nova = qtd_antiga + quantidade
+    pm_novo = (qtd_antiga * pm_antigo + quantidade * preco) / qtd_nova
+
+    carteira[codigo] = {"quantidade": qtd_nova, "preco_medio": round(pm_novo, 4)}
+    return saldo - custo_total, carteira, taxa
+
+
+def vender(saldo: float, carteira: dict, codigo: str, quantidade: float,
+           preco: float, dificuldade: str = "iniciante"):
+    """
+    Vende um ativo. Na venda o preço médio NÃO muda: ele só representa
+    quanto o aluno pagou, em média, pelas ações que ainda tem.
+
+    Retorna (novo_saldo, nova_carteira, taxa_paga).
+    """
+    codigo = validar_codigo(codigo)
+    quantidade = validar_quantidade(quantidade)
+
+    carteira = {k: dict(v) for k, v in carteira.items()}
+    posicao = carteira.get(codigo)
+    qtd_atual = posicao["quantidade"] if posicao else 0
+
+    if qtd_atual + TOLERANCIA < quantidade:
+        raise OperacaoInvalida("Quantidade insuficiente.")
+
+    valor = preco * quantidade
+    taxa = round(valor * taxa_corretagem(dificuldade), 2)
+    qtd_nova = qtd_atual - quantidade
+
+    if qtd_nova <= TOLERANCIA:
+        carteira.pop(codigo)  # vendeu tudo: remove o ativo da carteira
+    else:
+        posicao["quantidade"] = qtd_nova
+
+    return saldo + valor - taxa, carteira, taxa
+
+
+# --------------------------------------------------------------------------
+# Resultado da carteira
+# --------------------------------------------------------------------------
+
+def resumo_carteira(saldo: float, carteira: dict, precos: dict) -> dict:
+    """
+    Calcula quanto o aluno investiu, quanto isso vale hoje e o lucro
+    ou prejuízo de cada ativo e da carteira toda.
+
+    precos = {"PETR4": 42.0, "VALE3": 60.0}
+    """
+    posicoes = []
+    total_investido = 0.0
+    total_atual = 0.0
+
+    for codigo, pos in carteira.items():
+        qtd = pos["quantidade"]
+        if qtd <= TOLERANCIA:
+            continue
+
+        preco_atual = precos.get(codigo, 0.0)
+        investido = qtd * pos["preco_medio"]
+        atual = qtd * preco_atual
+        resultado = atual - investido
+
+        total_investido += investido
+        total_atual += atual
+
+        posicoes.append({
+            "codigo": codigo,
+            "quantidade": qtd,
+            "preco_medio": round(pos["preco_medio"], 2),
+            "preco_atual": preco_atual,
+            "resultado": round(resultado, 2),
+            "resultado_pct": round(resultado / investido * 100, 2) if investido else 0.0,
+        })
+
+    # Ativos com mais dinheiro aparecem primeiro
+    posicoes.sort(key=lambda p: p["quantidade"] * p["preco_atual"], reverse=True)
+
+    resultado_total = total_atual - total_investido
+    return {
+        "saldo_disponivel": round(saldo, 2),
+        "valor_investido": round(total_investido, 2),
+        "valor_em_ativos": round(total_atual, 2),
+        "patrimonio_total": round(saldo + total_atual, 2),
+        "resultado_total": round(resultado_total, 2),
+        "resultado_total_pct": round(resultado_total / total_investido * 100, 2) if total_investido else 0.0,
+        "posicoes": posicoes,
+    }
+
+
+# --------------------------------------------------------------------------
+# Exemplo de uso
+# --------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    saldo, carteira = 10_000.0, {}
+
+    saldo, carteira, _ = comprar(saldo, carteira, "PETR4", 10, 20.0)
+    saldo, carteira, _ = comprar(saldo, carteira, "PETR4", 10, 30.0)
+    saldo, carteira, _ = vender(saldo, carteira, "PETR4", 5, 32.0)
+
+    resumo = resumo_carteira(saldo, carteira, {"PETR4": 28.0})
+    for chave, valor in resumo.items():
+        print(f"{chave}: {valor}")
